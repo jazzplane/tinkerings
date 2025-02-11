@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Facemaker - Comic Book Filter</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f0f0f0;
+      padding: 20px;
+    }
+    .controls {
+      margin-bottom: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Facemaker</h1>
+  <div class="controls">
+    <!-- Upload an image file -->
+    <input type="file" id="imageUpload" accept="image/*">
+    <br><br>
+    <!-- Slider to adjust posterization levels -->
+    <label for="posterizeSlider">Posterization Levels: </label>
+    <input type="range" id="posterizeSlider" min="2" max="10" value="4">
+    <span id="posterizeValue">4</span>
+    <br><br>
+    <!-- Slider to adjust the edge threshold -->
+    <label for="edgeThresholdSlider">Edge Threshold: </label>
+    <input type="range" id="edgeThresholdSlider" min="0" max="100" value="30">
+    <span id="edgeThresholdValue">30</span>
+    <br><br>
+    <!-- Slider to adjust halftone dot size -->
+    <label for="dotSizeSlider">Halftone Dot Size: </label>
+    <input type="range" id="dotSizeSlider" min="0" max="50" value="20">
+    <span id="dotSizeValue">20</span>
+    <br><br>
+    <!-- Checkbox for random outline/dot color -->
+    <label for="randomColor">Random Outline/Dot Color: </label>
+    <input type="checkbox" id="randomColor">
+  </div>
+  
+  <!-- Canvas to display the processed image -->
+  <canvas id="canvas"></canvas>
+  
+  <script>
+    // Get references to DOM elements.
+    const imageUpload = document.getElementById('imageUpload');
+    const posterizeSlider = document.getElementById('posterizeSlider');
+    const posterizeValue = document.getElementById('posterizeValue');
+    const edgeThresholdSlider = document.getElementById('edgeThresholdSlider');
+    const edgeThresholdValue = document.getElementById('edgeThresholdValue');
+    const dotSizeSlider = document.getElementById('dotSizeSlider');
+    const dotSizeValue = document.getElementById('dotSizeValue');
+    const randomColorCheckbox = document.getElementById('randomColor');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let img = new Image();
+
+    // Update displayed slider values and reapply the filter.
+    posterizeSlider.addEventListener('input', () => {
+      posterizeValue.textContent = posterizeSlider.value;
+      applyComicFilter();
+    });
+    edgeThresholdSlider.addEventListener('input', () => {
+      edgeThresholdValue.textContent = edgeThresholdSlider.value;
+      applyComicFilter();
+    });
+    dotSizeSlider.addEventListener('input', () => {
+      dotSizeValue.textContent = dotSizeSlider.value;
+      applyComicFilter();
+    });
+    randomColorCheckbox.addEventListener('change', applyComicFilter);
+
+    // Helper: Returns a random color as an object {r, g, b}
+    function getRandomColor() {
+      return {
+        r: Math.floor(Math.random() * 256),
+        g: Math.floor(Math.random() * 256),
+        b: Math.floor(Math.random() * 256)
+      };
+    }
+
+    // Posterize: Reduce the number of color levels in the image.
+    function posterize(imageData, levels) {
+      const data = imageData.data;
+      const factor = 255 / (levels - 1);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i]     = Math.round(data[i] / factor) * factor;
+        data[i + 1] = Math.round(data[i + 1] / factor) * factor;
+        data[i + 2] = Math.round(data[i + 2] / factor) * factor;
+      }
+      return imageData;
+    }
+
+    // Compute edges using a simple neighbor difference method.
+    // For each pixel, if the average difference with the right and bottom pixels exceeds
+    // the threshold, mark it as an edge.
+    function computeEdges(data, width, height, threshold, edgeColor) {
+      let edgeData = new Uint8ClampedArray(data.length);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4;
+          if (x < width - 1 && y < height - 1) {
+            const iRight = (y * width + (x + 1)) * 4;
+            const iBottom = ((y + 1) * width + x) * 4;
+            const diffRight = (Math.abs(data[i] - data[iRight]) +
+                               Math.abs(data[i + 1] - data[iRight + 1]) +
+                               Math.abs(data[i + 2] - data[iRight + 2])) / 3;
+            const diffBottom = (Math.abs(data[i] - data[iBottom]) +
+                                Math.abs(data[i + 1] - data[iBottom + 1]) +
+                                Math.abs(data[i + 2] - data[iBottom + 2])) / 3;
+            const diff = (diffRight + diffBottom) / 2;
+            if (diff > threshold) {
+              edgeData[i]     = edgeColor.r;
+              edgeData[i + 1] = edgeColor.g;
+              edgeData[i + 2] = edgeColor.b;
+              edgeData[i + 3] = 255;
+            } else {
+              edgeData[i + 3] = 0;
+            }
+          } else {
+            edgeData[i + 3] = 0;
+          }
+        }
+      }
+      return new ImageData(edgeData, width, height);
+    }
+
+    // Draw halftone dots overlay based on brightness.
+    function drawHalftoneDots(imageData, dotSize, effectColor) {
+      const width = imageData.width;
+      const height = imageData.height;
+      // Loop over the image in blocks of size "dotSize".
+      for (let y = 0; y < height; y += dotSize) {
+        for (let x = 0; x < width; x += dotSize) {
+          // Sample the pixel from the center of the block.
+          const sampleX = Math.min(x + Math.floor(dotSize / 2), width - 1);
+          const sampleY = Math.min(y + Math.floor(dotSize / 2), height - 1);
+          const i = (sampleY * width + sampleX) * 4;
+          const r = imageData.data[i];
+          const g = imageData.data[i + 1];
+          const b = imageData.data[i + 2];
+          const brightness = (r + g + b) / 3;
+          // Map brightness (0 = dark, 255 = light) to a dot radius.
+          const radius = (1 - brightness / 255) * (dotSize / 2);
+          if (radius > 0) {
+            ctx.fillStyle = `rgb(${effectColor.r}, ${effectColor.g}, ${effectColor.b})`;
+            ctx.beginPath();
+            ctx.arc(x + dotSize / 2, y + dotSize / 2, radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+    }
+
+    // Main function: Applies the comic-book filter.
+    function applyComicFilter() {
+      if (!img.src) return;
+      // Set canvas size to the image dimensions.
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      // Draw the image onto an offscreen canvas to access its pixel data.
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(img, 0, 0, img.width, img.height);
+      let imageData = offCtx.getImageData(0, 0, img.width, img.height);
+
+      // Apply posterization.
+      const levels = parseInt(posterizeSlider.value, 10);
+      let posterizedData = posterize(imageData, levels);
+      
+      // Draw the posterized image on the main canvas.
+      ctx.putImageData(posterizedData, 0, 0);
+
+      // Determine the effect color.
+      // If the random color option is checked, generate a random color; otherwise use black.
+      const effectColor = randomColorCheckbox.checked ? getRandomColor() : { r: 0, g: 0, b: 0 };
+
+      // Compute and overlay edges.
+      const threshold = parseFloat(edgeThresholdSlider.value);
+      const edgesData = computeEdges(posterizedData.data, img.width, img.height, threshold, effectColor);
+      ctx.putImageData(edgesData, 0, 0);
+
+      // Overlay halftone dots if the dot size is greater than 0.
+      const dotSize = parseInt(dotSizeSlider.value, 10);
+      if (dotSize > 0) {
+        drawHalftoneDots(posterizedData, dotSize, effectColor);
+      }
+    }
+
+    // When a new image is uploaded, load it and apply the filter.
+    imageUpload.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        img = new Image();
+        img.onload = function() {
+          applyComicFilter();
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    });
+  </script>
+</body>
+</html>

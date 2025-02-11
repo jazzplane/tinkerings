@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Jazzplane Ad Maker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      text-align: center;
+      padding: 20px;
+    }
+    h1, h2 {
+      margin-bottom: 10px;
+    }
+    .controls, .effect-buttons {
+      margin-bottom: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 20px;
+      max-width: 100%;
+      height: auto;
+    }
+    /* Hide the main app until payment is made */
+    #app { display: none; }
+  </style>
+</head>
+<body>
+  <!-- PAYWALL SECTION -->
+  <div id="paywall">
+    <h2>Unlock Jazzplane Ad Maker</h2>
+    <p>To use this tool, please pay <strong>0.05 ETH</strong> to:</p>
+    <p><code>0xD48E429678305A3cE75dB5929BE92e9576b330d8</code></p>
+    <button id="payButton">Pay 0.05 ETH</button>
+    <div id="payStatus"></div>
+  </div>
+
+  <!-- MAIN APP SECTION (hidden until paid) -->
+  <div id="app">
+    <h1>Jazzplane Ad Maker</h1>
+    <!-- Effect selection buttons -->
+    <div class="effect-buttons">
+      <button id="effectDotted">Black &amp; White Dotted Effect (Default)</button>
+      <button id="effectOther">Randomized Color Overlay Effect</button>
+    </div>
+
+    <!-- Controls for the Dotted Effect -->
+    <div id="dottedControls" class="controls">
+      <label for="dotSizeSlider">Dot Size:</label>
+      <input type="range" id="dotSizeSlider" min="5" max="50" value="20">
+      <span id="dotSizeValue">20</span>
+      <br>
+      <label for="randomDotColor">Random Dot Colors:</label>
+      <input type="checkbox" id="randomDotColor">
+    </div>
+
+    <!-- Controls for the Alternate Effect -->
+    <div id="otherControls" class="controls" style="display:none;">
+      <button id="randomizeColorButton">Randomize Colors</button>
+    </div>
+
+    <!-- Image upload -->
+    <div class="controls">
+      <input type="file" id="imageUpload" accept="image/*">
+    </div>
+    <!-- Canvas to display the processed image -->
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- Ethers.js from a CDN for paywall transaction -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers/dist/ethers.min.js"></script>
+  <script>
+    /********** PAYWALL SETUP **********/
+    const payButton = document.getElementById('payButton');
+    const payStatus = document.getElementById('payStatus');
+    const paywallDiv = document.getElementById('paywall');
+    const appDiv = document.getElementById('app');
+
+    payButton.addEventListener('click', async () => {
+      // Ensure a Web3 provider is available (e.g. MetaMask)
+      if (typeof window.ethereum === 'undefined') {
+        payStatus.textContent = "MetaMask is not installed. Please install MetaMask.";
+        return;
+      }
+      try {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []); // Request access to accounts
+        const signer = provider.getSigner();
+        payStatus.textContent = "Processing payment...";
+        // Send 0.05 ETH to the provided address
+        const tx = await signer.sendTransaction({
+          to: "0xD48E429678305A3cE75dB5929BE92e9576b330d8",
+          value: ethers.utils.parseEther("0.05")
+        });
+        await tx.wait();  // Wait for confirmation
+        payStatus.textContent = "Payment successful! Unlocking app...";
+        // Hide paywall and show main app
+        paywallDiv.style.display = "none";
+        appDiv.style.display = "block";
+      } catch (err) {
+        console.error(err);
+        payStatus.textContent = "Payment failed: " + err.message;
+      }
+    });
+
+    /********** APP FUNCTIONALITY **********/
+    const imageUpload = document.getElementById('imageUpload');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const dotSizeSlider = document.getElementById('dotSizeSlider');
+    const dotSizeValue = document.getElementById('dotSizeValue');
+    const randomDotColor = document.getElementById('randomDotColor');
+    const effectDotted = document.getElementById('effectDotted');
+    const effectOther = document.getElementById('effectOther');
+    const dottedControls = document.getElementById('dottedControls');
+    const otherControls = document.getElementById('otherControls');
+    const randomizeColorButton = document.getElementById('randomizeColorButton');
+
+    let img = new Image();
+    let currentEffect = "dotted"; // default effect
+
+    // ---------- Default Effect: Black & White Dotted ----------
+    function drawDottedEffect() {
+      if (!img.src) return;
+      // Resize canvas to match image dimensions
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw image to an offscreen canvas to sample pixel data
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(img, 0, 0, img.width, img.height);
+      const imageData = offCtx.getImageData(0, 0, img.width, img.height).data;
+
+      const dotSize = parseInt(dotSizeSlider.value, 10);
+      for (let y = 0; y < img.height; y += dotSize) {
+        for (let x = 0; x < img.width; x += dotSize) {
+          let sampleX = Math.floor(x + dotSize / 2);
+          let sampleY = Math.floor(y + dotSize / 2);
+          sampleX = Math.min(sampleX, img.width - 1);
+          sampleY = Math.min(sampleY, img.height - 1);
+          const index = (sampleY * img.width + sampleX) * 4;
+          const r = imageData[index];
+          const g = imageData[index + 1];
+          const b = imageData[index + 2];
+          // Compute brightness (0 = dark, 255 = light)
+          const brightness = (r + g + b) / 3;
+          // Map brightness to dot radius (darker areas = larger dots)
+          const radius = (1 - brightness / 255) * (dotSize / 2);
+          let fillColor;
+          if (randomDotColor.checked) {
+            // Use a randomly generated color for each dot
+            const randomR = Math.floor(Math.random() * 256);
+            const randomG = Math.floor(Math.random() * 256);
+            const randomB = Math.floor(Math.random() * 256);
+            fillColor = `rgb(${randomR}, ${randomG}, ${randomB})`;
+          } else {
+            fillColor = 'black';
+          }
+          ctx.fillStyle = fillColor;
+          ctx.beginPath();
+          ctx.arc(x + dotSize / 2, y + dotSize / 2, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // ---------- Alternate Effect: Randomized Color Overlay ----------
+    function drawOtherEffect(randomize = false) {
+      if (!img.src) return;
+      // Set canvas to image dimensions
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Draw the base image
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      // Choose overlay color: either random or fixed default
+      let overlayColor;
+      if (randomize) {
+        const r = Math.floor(Math.random() * 256);
+        const g = Math.floor(Math.random() * 256);
+        const b = Math.floor(Math.random() * 256);
+        overlayColor = `rgba(${r},${g},${b},0.5)`;
+      } else {
+        overlayColor = `rgba(100, 150, 200, 0.5)`;
+      }
+      // Apply the overlay
+      ctx.fillStyle = overlayColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // ---------- Event Listeners for Effect Selection ----------
+    effectDotted.addEventListener('click', () => {
+      currentEffect = "dotted";
+      dottedControls.style.display = "block";
+      otherControls.style.display = "none";
+      if (img.src) drawDottedEffect();
+    });
+    effectOther.addEventListener('click', () => {
+      currentEffect = "other";
+      dottedControls.style.display = "none";
+      otherControls.style.display = "block";
+      if (img.src) drawOtherEffect();
+    });
+    randomizeColorButton.addEventListener('click', () => {
+      if (currentEffect === "other" && img.src) {
+        drawOtherEffect(true);
+      }
+    });
+
+    // ---------- Event Listeners for Controls ----------
+    dotSizeSlider.addEventListener('input', () => {
+      dotSizeValue.textContent = dotSizeSlider.value;
+      if (currentEffect === "dotted" && img.src) drawDottedEffect();
+    });
+    randomDotColor.addEventListener('change', () => {
+      if (currentEffect === "dotted" && img.src) drawDottedEffect();
+    });
+
+    // ---------- Image Upload Handling ----------
+    imageUpload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        img = new Image();
+        img.onload = function() {
+          if (currentEffect === "dotted") {
+            drawDottedEffect();
+          } else {
+            drawOtherEffect();
+          }
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    });
+  </script>
+</body>
+</html>

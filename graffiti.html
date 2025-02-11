@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Style Painter with Custom Graffiti Option</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+    }
+    #controls {
+      background: #fff;
+      padding: 10px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      margin-bottom: 10px;
+    }
+    #controls label {
+      margin-right: 10px;
+      font-weight: bold;
+    }
+    #controls select,
+    #controls input[type="range"] {
+      margin-right: 20px;
+    }
+    #widthDisplay {
+      font-weight: bold;
+    }
+    #clearBtn {
+      background: #d9534f;
+      border: none;
+      color: #fff;
+      padding: 8px 15px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #clearBtn:hover {
+      background: #c9302c;
+    }
+    #canvas {
+      border: 1px solid #ccc;
+      background: #fff;
+      display: block;
+      margin: 0 auto;
+      cursor: crosshair;
+    }
+    /* Container for graffiti options (only shown when Graffiti mode is active) */
+    #graffitiOptionsContainer {
+      margin-top: 10px;
+      text-align: left;
+      display: none;
+      padding: 0 10px;
+    }
+    #graffitiOptionsContainer p {
+      margin: 5px 0;
+      font-weight: bold;
+    }
+    #graffitiOptionsContainer label {
+      margin-right: 15px;
+    }
+    /* Container for custom graffiti upload (only when "Custom Image Brush" is selected) */
+    #customGraffitiContainer {
+      margin-top: 5px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label for="styleSelect">Painting Style:</label>
+    <select id="styleSelect">
+      <option value="basic">Basic</option>
+      <option value="graffiti">Graffiti</option>
+    </select>
+
+    <label for="brushWidth">Brush Width:</label>
+    <input type="range" id="brushWidth" min="1" max="50" value="10">
+    <span id="widthDisplay">10</span>
+
+    <button id="clearBtn">Clear Canvas</button>
+    
+    <!-- Graffiti Options Panel (visible only when "Graffiti" mode is selected) -->
+    <div id="graffitiOptionsContainer">
+      <p>Graffiti Brush Options:</p>
+      <label>
+        <input type="radio" name="graffitiBrushOption" value="normal" checked>
+        Colored Dots
+      </label>
+      <label>
+        <input type="radio" name="graffitiBrushOption" value="emoji">
+        Emoji Brush
+      </label>
+      <label>
+        <input type="radio" name="graffitiBrushOption" value="custom">
+        Custom Image Brush
+      </label>
+      <div id="customGraffitiContainer">
+        <label for="customGraffitiUpload">Upload Custom Graffiti Image:</label>
+        <input type="file" id="customGraffitiUpload" accept="image/*">
+      </div>
+    </div>
+  </div>
+
+  <canvas id="canvas" width="800" height="600"></canvas>
+
+  <script>
+    // Get DOM elements
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const styleSelect = document.getElementById("styleSelect");
+    const brushWidthSlider = document.getElementById("brushWidth");
+    const widthDisplay = document.getElementById("widthDisplay");
+    const clearBtn = document.getElementById("clearBtn");
+    const graffitiOptionsContainer = document.getElementById("graffitiOptionsContainer");
+    const customGraffitiContainer = document.getElementById("customGraffitiContainer");
+    const customGraffitiUpload = document.getElementById("customGraffitiUpload");
+    
+    // We'll use a radio group named "graffitiBrushOption" (options: normal, emoji, custom)
+    const graffitiBrushRadios = document.getElementsByName("graffitiBrushOption");
+    
+    // Variables for painting state
+    let isPainting = false;
+    let lastX = 0, lastY = 0;
+    
+    // Global variables for custom graffiti image (for custom image brush)
+    let customGraffitiImage = new Image();
+    
+    // Update brush width display when slider changes
+    brushWidthSlider.addEventListener("input", () => {
+      widthDisplay.textContent = brushWidthSlider.value;
+    });
+    
+    // When the painting style is changed, show/hide graffiti options
+    styleSelect.addEventListener("change", () => {
+      if (styleSelect.value === "graffiti") {
+        graffitiOptionsContainer.style.display = "block";
+      } else {
+        graffitiOptionsContainer.style.display = "none";
+      }
+    });
+    
+    // Listen for changes in the graffiti brush radio group.
+    // If "custom" is selected, show the custom upload container.
+    function updateGraffitiOptionDisplay() {
+      const selectedOption = document.querySelector('input[name="graffitiBrushOption"]:checked').value;
+      if (selectedOption === "custom") {
+        customGraffitiContainer.style.display = "block";
+      } else {
+        customGraffitiContainer.style.display = "none";
+      }
+    }
+    graffitiBrushRadios.forEach(radio => {
+      radio.addEventListener("change", updateGraffitiOptionDisplay);
+    });
+    
+    // Handle custom graffiti image upload
+    customGraffitiUpload.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        customGraffitiImage = new Image();
+        customGraffitiImage.onload = function() {
+          // Once loaded, no further action is needed until painting occurs.
+        }
+        customGraffitiImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    // Basic painting: continuous line drawing.
+    function drawBasic(x, y) {
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+    
+    // Normal graffiti: spray random colored dots.
+    function drawNormalGraffiti(x, y, brushWidth) {
+      const numDots = 20;
+      const colors = ["#FF0000", "#FFA500", "#FFFF00", "#00FF00", "#00FFFF", "#0000FF", "#800080", "#FFC0CB"];
+      for (let i = 0; i < numDots; i++) {
+        let offsetX = (Math.random() - 0.5) * brushWidth * 2;
+        let offsetY = (Math.random() - 0.5) * brushWidth * 2;
+        let dotX = x + offsetX;
+        let dotY = y + offsetY;
+        let dotRadius = Math.random() * (brushWidth / 4);
+        ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    // Emoji graffiti: spray random emojis.
+    function drawEmojiGraffiti(x, y, brushWidth) {
+      const numEmojis = 20;
+      const spreadFactor = 5; // Increased spread factor to space them out
+      const emojis = ["😂", "😎", "🔥", "💥", "🤘", "🎨", "🖌️", "🚀", "🌈", "😊"];
+      for (let i = 0; i < numEmojis; i++) {
+        let offsetX = (Math.random() - 0.5) * brushWidth * spreadFactor;
+        let offsetY = (Math.random() - 0.5) * brushWidth * spreadFactor;
+        let emojiX = x + offsetX;
+        let emojiY = y + offsetY;
+        // Choose a random font size between brushWidth/2 and brushWidth*1.5.
+        let fontSize = Math.random() * brushWidth + (brushWidth / 2);
+        ctx.font = `${fontSize}px sans-serif`;
+        let emoji = emojis[Math.floor(Math.random() * emojis.length)];
+        ctx.fillText(emoji, emojiX, emojiY);
+      }
+    }
+    
+    // Custom Image graffiti: spray the user-uploaded image with random offsets and scales.
+    function drawCustomGraffiti(x, y, brushWidth) {
+      // If no custom image has been uploaded, do nothing.
+      if (!customGraffitiImage.src) return;
+      const numImages = 20;
+      const spreadFactor = 5; // Use a similar spread factor as emojis
+      for (let i = 0; i < numImages; i++) {
+        let offsetX = (Math.random() - 0.5) * brushWidth * spreadFactor;
+        let offsetY = (Math.random() - 0.5) * brushWidth * spreadFactor;
+        let imgX = x + offsetX;
+        let imgY = y + offsetY;
+        // Random scale between brushWidth/2 and brushWidth*1.5
+        let scale = Math.random() * brushWidth + (brushWidth / 2);
+        ctx.drawImage(customGraffitiImage, imgX, imgY, scale, scale);
+      }
+    }
+    
+    // Combined graffiti function: choose drawing based on selected graffiti option.
+    function drawGraffiti(x, y, brushWidth) {
+      const option = document.querySelector('input[name="graffitiBrushOption"]:checked').value;
+      if (option === "normal") {
+        drawNormalGraffiti(x, y, brushWidth);
+      } else if (option === "emoji") {
+        drawEmojiGraffiti(x, y, brushWidth);
+      } else if (option === "custom") {
+        drawCustomGraffiti(x, y, brushWidth);
+      }
+    }
+    
+    // Event listeners for mouse painting on canvas.
+    canvas.addEventListener("mousedown", (e) => {
+      isPainting = true;
+      lastX = e.offsetX;
+      lastY = e.offsetY;
+      if (styleSelect.value === "basic") {
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+      }
+    });
+    
+    canvas.addEventListener("mousemove", (e) => {
+      if (!isPainting) return;
+      const brushWidth = parseInt(brushWidthSlider.value, 10);
+      if (styleSelect.value === "basic") {
+        ctx.lineWidth = brushWidth;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#000";
+        drawBasic(e.offsetX, e.offsetY);
+      } else if (styleSelect.value === "graffiti") {
+        drawGraffiti(e.offsetX, e.offsetY, brushWidth);
+      }
+      lastX = e.offsetX;
+      lastY = e.offsetY;
+    });
+    
+    canvas.addEventListener("mouseup", () => isPainting = false);
+    canvas.addEventListener("mouseout", () => isPainting = false);
+    
+    // Clear canvas button
+    clearBtn.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+  </script>
+</body>
+</html>

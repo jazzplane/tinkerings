@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>8-Bit Image Converter</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #eee;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    #controls {
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #fff;
+      display: inline-block;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+    }
+    #controls input[type="range"] {
+      vertical-align: middle;
+      margin: 0 5px;
+    }
+    #controls span {
+      font-weight: bold;
+    }
+    /* Container for the two canvases arranged side by side */
+    #canvasContainer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 20px;
+    }
+    .canvasWrapper {
+      text-align: center;
+    }
+    .canvasWrapper canvas {
+      border: 1px solid #ccc;
+      background: #fff;
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>8-Bit Image Converter</h1>
+  <div id="controls">
+    <input type="file" id="imageUpload" accept="image/*">
+    <br><br>
+    <label for="pixelSizeSlider">Pixelation Size:</label>
+    <input type="range" id="pixelSizeSlider" min="2" max="50" value="8">
+    <span id="pixelSizeValue">8</span>
+    <br><br>
+    <label for="colorLevelsSlider">Color Levels:</label>
+    <input type="range" id="colorLevelsSlider" min="2" max="16" value="4">
+    <span id="colorLevelsValue">4</span>
+    <br><br>
+    <button id="convertBtn">Convert to 8-Bit Style</button>
+  </div>
+
+  <div id="canvasContainer">
+    <div class="canvasWrapper">
+      <canvas id="originalCanvas"></canvas>
+      <p>Original Image</p>
+    </div>
+    <div class="canvasWrapper">
+      <canvas id="convertedCanvas"></canvas>
+      <p>8-Bit Conversion</p>
+    </div>
+  </div>
+
+  <script>
+    // --- DOM Elements ---
+    const imageUpload = document.getElementById("imageUpload");
+    const pixelSizeSlider = document.getElementById("pixelSizeSlider");
+    const pixelSizeValue = document.getElementById("pixelSizeValue");
+    const colorLevelsSlider = document.getElementById("colorLevelsSlider");
+    const colorLevelsValue = document.getElementById("colorLevelsValue");
+    const convertBtn = document.getElementById("convertBtn");
+    const originalCanvas = document.getElementById("originalCanvas");
+    const convertedCanvas = document.getElementById("convertedCanvas");
+    const origCtx = originalCanvas.getContext("2d");
+    const convCtx = convertedCanvas.getContext("2d");
+
+    // --- Global Variables ---
+    let uploadedImage = new Image();
+
+    // --- Update Slider Display Values ---
+    pixelSizeSlider.addEventListener("input", () => {
+      pixelSizeValue.textContent = pixelSizeSlider.value;
+    });
+    colorLevelsSlider.addEventListener("input", () => {
+      colorLevelsValue.textContent = colorLevelsSlider.value;
+    });
+
+    // --- Handle Image Upload ---
+    imageUpload.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        uploadedImage = new Image();
+        uploadedImage.onload = function() {
+          // Set both canvases to match the uploaded image dimensions.
+          originalCanvas.width = uploadedImage.width;
+          originalCanvas.height = uploadedImage.height;
+          convertedCanvas.width = uploadedImage.width;
+          convertedCanvas.height = uploadedImage.height;
+          // Draw the original image.
+          origCtx.drawImage(uploadedImage, 0, 0);
+        };
+        uploadedImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // --- 8-Bit Conversion Function ---
+    function convertTo8Bit() {
+      const pixelSize = parseInt(pixelSizeSlider.value, 10);
+      const colorLevels = parseInt(colorLevelsSlider.value, 10);
+      const factor = 255 / (colorLevels - 1); // Quantization factor.
+
+      const width = uploadedImage.width;
+      const height = uploadedImage.height;
+
+      // Draw the uploaded image to an offscreen canvas.
+      const offCanvas = document.createElement("canvas");
+      offCanvas.width = width;
+      offCanvas.height = height;
+      const offCtx = offCanvas.getContext("2d");
+      offCtx.drawImage(uploadedImage, 0, 0, width, height);
+
+      // Get the image data.
+      const imageData = offCtx.getImageData(0, 0, width, height);
+
+      // Clear the converted canvas.
+      convCtx.clearRect(0, 0, width, height);
+
+      // Loop over the image in blocks of size "pixelSize".
+      for (let y = 0; y < height; y += pixelSize) {
+        for (let x = 0; x < width; x += pixelSize) {
+          let sumR = 0, sumG = 0, sumB = 0, count = 0;
+          // Calculate the average color for the current block.
+          for (let j = 0; j < pixelSize; j++) {
+            for (let i = 0; i < pixelSize; i++) {
+              const posX = x + i;
+              const posY = y + j;
+              if (posX >= width || posY >= height) continue;
+              const index = (posY * width + posX) * 4;
+              sumR += imageData.data[index];
+              sumG += imageData.data[index + 1];
+              sumB += imageData.data[index + 2];
+              count++;
+            }
+          }
+          const avgR = sumR / count;
+          const avgG = sumG / count;
+          const avgB = sumB / count;
+          // Quantize each channel.
+          const newR = Math.round(avgR / factor) * factor;
+          const newG = Math.round(avgG / factor) * factor;
+          const newB = Math.round(avgB / factor) * factor;
+          convCtx.fillStyle = `rgb(${newR}, ${newG}, ${newB})`;
+          // Draw a rectangle for the block.
+          convCtx.fillRect(x, y, pixelSize, pixelSize);
+        }
+      }
+    }
+
+    // --- Convert Button Handler ---
+    convertBtn.addEventListener("click", () => {
+      if (!uploadedImage.src) {
+        alert("Please upload an image first.");
+        return;
+      }
+      convertTo8Bit();
+    });
+  </script>
+</body>
+</html>

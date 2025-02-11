@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ChatGPT Ad Maker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f7f7;
+      text-align: center;
+      padding: 20px;
+    }
+    .controls {
+      margin-bottom: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>ChatGPT Ad Maker</h1>
+  <div class="controls">
+    <!-- Upload an image file -->
+    <input type="file" id="imageUpload" accept="image/*">
+    <br><br>
+    <!-- Slider to adjust the dot size (which here also controls grid cell size) -->
+    <label for="dotSizeSlider">Dot Size: </label>
+    <input type="range" id="dotSizeSlider" min="5" max="50" value="20">
+    <span id="dotSizeValue">20</span>
+    <br><br>
+    <!-- Checkbox to toggle random dot colors -->
+    <label for="randomColor">Random Dot Colors: </label>
+    <input type="checkbox" id="randomColor">
+  </div>
+  
+  <!-- Canvas to display the processed image -->
+  <canvas id="canvas"></canvas>
+
+  <script>
+    // Get references to the DOM elements
+    const imageUpload = document.getElementById('imageUpload');
+    const dotSizeSlider = document.getElementById('dotSizeSlider');
+    const dotSizeValue = document.getElementById('dotSizeValue');
+    const randomColorCheckbox = document.getElementById('randomColor');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let img = new Image();
+
+    // This function applies the dotted effect to the image.
+    function drawImageEffect() {
+      // Do nothing if no image is loaded.
+      if (!img.src) return;
+      
+      // Set the canvas size to match the image dimensions.
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // Clear the canvas.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Get the dot size value from the slider.
+      const dotSize = parseInt(dotSizeSlider.value, 10);
+
+      // Create an offscreen canvas to draw the image and access its pixel data.
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(img, 0, 0, img.width, img.height);
+      const imageData = offCtx.getImageData(0, 0, img.width, img.height).data;
+
+      // Loop over the image in blocks of "dotSize".
+      for (let y = 0; y < img.height; y += dotSize) {
+        for (let x = 0; x < img.width; x += dotSize) {
+          // Sample a pixel in the center of the current block.
+          let sampleX = Math.floor(x + dotSize / 2);
+          let sampleY = Math.floor(y + dotSize / 2);
+          // Ensure the sample coordinates do not exceed the image bounds.
+          sampleX = Math.min(sampleX, img.width - 1);
+          sampleY = Math.min(sampleY, img.height - 1);
+
+          // Get the pixel's color data.
+          const index = (sampleY * img.width + sampleX) * 4;
+          const r = imageData[index];
+          const g = imageData[index + 1];
+          const b = imageData[index + 2];
+
+          // Convert the pixel to a grayscale brightness value.
+          const brightness = (r + g + b) / 3;
+          
+          // Map brightness (0 dark, 255 light) to a dot radius.
+          // Darker areas get larger dots; lighter areas get smaller dots.
+          const radius = (1 - brightness / 255) * (dotSize / 2);
+
+          // Determine the dot's fill color.
+          let fillColor;
+          if (randomColorCheckbox.checked) {
+            // Generate a random RGB color.
+            const randomR = Math.floor(Math.random() * 256);
+            const randomG = Math.floor(Math.random() * 256);
+            const randomB = Math.floor(Math.random() * 256);
+            fillColor = `rgb(${randomR}, ${randomG}, ${randomB})`;
+          } else {
+            // Use black for a classic black & white effect.
+            fillColor = 'black';
+          }
+
+          // Draw the dot on the main canvas.
+          ctx.fillStyle = fillColor;
+          ctx.beginPath();
+          ctx.arc(x + dotSize / 2, y + dotSize / 2, radius, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Event listener: When a new image is selected...
+    imageUpload.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        img = new Image();
+        img.onload = function() {
+          drawImageEffect();
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    });
+
+    // Event listener: Update the dot size value and redraw on slider change.
+    dotSizeSlider.addEventListener('input', function() {
+      dotSizeValue.textContent = dotSizeSlider.value;
+      drawImageEffect();
+    });
+
+    // Event listener: Redraw when toggling the random color option.
+    randomColorCheckbox.addEventListener('change', drawImageEffect);
+  </script>
+</body>
+</html>

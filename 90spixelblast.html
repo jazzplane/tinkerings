@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pixelblast</title>
+  <style>
+    /* 90's-Themed Background: Neon pink dots on a dark background */
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #222;
+      background-image: 
+        radial-gradient(circle, #ff66cc 10%, transparent 10%),
+        radial-gradient(circle, #ff66cc 10%, transparent 10%);
+      background-position: 0 0, 50px 50px;
+      background-size: 100px 100px;
+      text-align: center;
+      padding: 20px;
+      color: #fff;
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    .controls {
+      margin-bottom: 15px;
+    }
+    /* Keep the canvas with a white background so the effect shows clearly */
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 20px;
+      max-width: 100%;
+      height: auto;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h1>Pixelblast</h1>
+
+  <!-- Main Image Upload -->
+  <div class="controls">
+    <label for="imageUpload">Upload Main Image:</label>
+    <input type="file" id="imageUpload" accept="image/*">
+  </div>
+
+  <!-- Dot Size Slider -->
+  <div class="controls">
+    <label for="dotSizeSlider">Dot Size:</label>
+    <input type="range" id="dotSizeSlider" min="5" max="50" value="20">
+    <span id="dotSizeValue">20</span>
+  </div>
+
+  <!-- Random Color Option -->
+  <div class="controls">
+    <label for="randomDotColor">Random Dot Colors:</label>
+    <input type="checkbox" id="randomDotColor">
+  </div>
+
+  <!-- Dot Shape Selection -->
+  <div class="controls">
+    <span>Dot Shape:</span>
+    <label>
+      <input type="radio" name="dotShape" id="shapeCircle" value="circle" checked>
+      Circle
+    </label>
+    <label>
+      <input type="radio" name="dotShape" id="shapeCustom" value="custom">
+      Custom Image
+    </label>
+  </div>
+
+  <!-- Custom Shape Upload (shown only when Custom Image is selected) -->
+  <div class="controls" id="customShapeControls" style="display: none;">
+    <label for="customShapeUpload">Upload Custom Shape:</label>
+    <input type="file" id="customShapeUpload" accept="image/*">
+  </div>
+
+  <!-- Canvas for the Effect -->
+  <canvas id="canvas"></canvas>
+
+  <script>
+    // DOM elements
+    const imageUpload = document.getElementById('imageUpload');
+    const dotSizeSlider = document.getElementById('dotSizeSlider');
+    const dotSizeValue = document.getElementById('dotSizeValue');
+    const randomDotColor = document.getElementById('randomDotColor');
+    const shapeCircleRadio = document.getElementById('shapeCircle');
+    const shapeCustomRadio = document.getElementById('shapeCustom');
+    const customShapeControls = document.getElementById('customShapeControls');
+    const customShapeUpload = document.getElementById('customShapeUpload');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Global variables to hold images and settings
+    let mainImage = new Image();
+    let customShapeImage = new Image();
+    let dotSize = parseInt(dotSizeSlider.value, 10);
+
+    // Update dot size display and redraw when the slider changes.
+    dotSizeSlider.addEventListener('input', () => {
+      dotSize = parseInt(dotSizeSlider.value, 10);
+      dotSizeValue.textContent = dotSizeSlider.value;
+      if (mainImage.src) drawPixelblastEffect();
+    });
+
+    // Listen for changes on the random color option.
+    randomDotColor.addEventListener('change', () => {
+      if (mainImage.src) drawPixelblastEffect();
+    });
+
+    // Show or hide the custom shape controls based on shape selection.
+    shapeCircleRadio.addEventListener('change', () => {
+      if (shapeCircleRadio.checked) {
+        customShapeControls.style.display = "none";
+        if (mainImage.src) drawPixelblastEffect();
+      }
+    });
+    shapeCustomRadio.addEventListener('change', () => {
+      if (shapeCustomRadio.checked) {
+        customShapeControls.style.display = "block";
+        if (mainImage.src) drawPixelblastEffect();
+      }
+    });
+
+    // Handle custom shape image upload.
+    customShapeUpload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        customShapeImage = new Image();
+        customShapeImage.onload = function() {
+          if (mainImage.src) drawPixelblastEffect();
+        }
+        customShapeImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Handle main image upload.
+    imageUpload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        mainImage = new Image();
+        mainImage.onload = function() {
+          drawPixelblastEffect();
+        }
+        mainImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Main function to draw the Pixelblast effect.
+    function drawPixelblastEffect() {
+      if (!mainImage.src) return;
+      
+      // Set canvas size to match the main image.
+      canvas.width = mainImage.width;
+      canvas.height = mainImage.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the main image on an offscreen canvas to sample its pixel data.
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = mainImage.width;
+      offCanvas.height = mainImage.height;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(mainImage, 0, 0, mainImage.width, mainImage.height);
+      const imageData = offCtx.getImageData(0, 0, mainImage.width, mainImage.height).data;
+
+      // Loop over the image in grid cells of size "dotSize".
+      for (let y = 0; y < mainImage.height; y += dotSize) {
+        for (let x = 0; x < mainImage.width; x += dotSize) {
+          // Sample a pixel from the center of the current cell.
+          let sampleX = Math.floor(x + dotSize / 2);
+          let sampleY = Math.floor(y + dotSize / 2);
+          sampleX = Math.min(sampleX, mainImage.width - 1);
+          sampleY = Math.min(sampleY, mainImage.height - 1);
+
+          const index = (sampleY * mainImage.width + sampleX) * 4;
+          const r = imageData[index];
+          const g = imageData[index + 1];
+          const b = imageData[index + 2];
+          // Calculate brightness (0 = dark, 255 = light)
+          const brightness = (r + g + b) / 3;
+          // Map brightness to a dot radius (darker areas yield larger dots)
+          const radius = (1 - brightness / 255) * (dotSize / 2);
+          if (radius <= 0) continue; // Skip drawing if the radius is 0
+
+          // Determine the fill color.
+          let fillColor = 'black';
+          if (randomDotColor.checked) {
+            const randomR = Math.floor(Math.random() * 256);
+            const randomG = Math.floor(Math.random() * 256);
+            const randomB = Math.floor(Math.random() * 256);
+            fillColor = `rgb(${randomR}, ${randomG}, ${randomB})`;
+          }
+
+          // Calculate center position of the current cell.
+          const centerX = x + dotSize / 2;
+          const centerY = y + dotSize / 2;
+
+          // Draw according to the chosen shape.
+          if (shapeCustomRadio.checked && customShapeImage.src) {
+            // Use the custom shape image.
+            const diameter = radius * 2;
+            const posX = centerX - radius;
+            const posY = centerY - radius;
+
+            if (randomDotColor.checked) {
+              // Draw the custom image then tint it with the random color.
+              ctx.save();
+              ctx.drawImage(customShapeImage, posX, posY, diameter, diameter);
+              ctx.globalCompositeOperation = "source-atop";
+              ctx.fillStyle = fillColor;
+              ctx.fillRect(posX, posY, diameter, diameter);
+              ctx.restore();
+            } else {
+              ctx.drawImage(customShapeImage, posX, posY, diameter, diameter);
+            }
+          } else {
+            // Draw a simple circle.
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.fillStyle = fillColor;
+            ctx.fill();
+          }
+        }
+      }
+    }
+  </script>
+</body>
+</html>

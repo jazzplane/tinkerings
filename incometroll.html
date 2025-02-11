@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IncomeTroll Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    .controls {
+      margin-bottom: 15px;
+    }
+    /* Ensure the canvas has a white background so the effect is clear */
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 20px;
+      max-width: 100%;
+      height: auto;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h1>IncomeTroll Generator</h1>
+
+  <!-- Main Image Upload -->
+  <div class="controls">
+    <label for="imageUpload">Upload Main Image:</label>
+    <input type="file" id="imageUpload" accept="image/*">
+  </div>
+
+  <!-- Dot Size Slider -->
+  <div class="controls">
+    <label for="dotSizeSlider">Dot Size:</label>
+    <input type="range" id="dotSizeSlider" min="5" max="50" value="20">
+    <span id="dotSizeValue">20</span>
+  </div>
+
+  <!-- Random Color Option -->
+  <div class="controls">
+    <label for="randomDotColor">Random Dot Colors:</label>
+    <input type="checkbox" id="randomDotColor">
+  </div>
+
+  <!-- Canvas for the Effect -->
+  <canvas id="canvas"></canvas>
+
+  <script>
+    // DOM elements
+    const imageUpload   = document.getElementById('imageUpload');
+    const dotSizeSlider = document.getElementById('dotSizeSlider');
+    const dotSizeValue  = document.getElementById('dotSizeValue');
+    const randomDotColor= document.getElementById('randomDotColor');
+    const canvas        = document.getElementById('canvas');
+    const ctx           = canvas.getContext('2d');
+
+    // Global variables
+    let mainImage = new Image();
+    let dotSize   = parseInt(dotSizeSlider.value, 10);
+
+    // Preload the troll-face image
+    let trollFace = new Image();
+    trollFace.crossOrigin = "Anonymous";
+    // Set the source for your troll-face image.
+    // Place a file named "trollface.png" in the same folder as this HTML file, or change this URL.
+    trollFace.src = "trollface.png";
+
+    // Update dot size display and redraw when the slider changes.
+    dotSizeSlider.addEventListener('input', () => {
+      dotSize = parseInt(dotSizeSlider.value, 10);
+      dotSizeValue.textContent = dotSizeSlider.value;
+      if (mainImage.src) drawIncomeTrollEffect();
+    });
+
+    // Listen for changes on the random color checkbox.
+    randomDotColor.addEventListener('change', () => {
+      if (mainImage.src) drawIncomeTrollEffect();
+    });
+
+    // Handle main image upload.
+    imageUpload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        mainImage = new Image();
+        mainImage.onload = function() {
+          drawIncomeTrollEffect();
+        }
+        mainImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Main function: Draws the troll-face halftone effect.
+    function drawIncomeTrollEffect() {
+      if (!mainImage.src) return;
+      
+      // Set canvas size to match the main image.
+      canvas.width  = mainImage.width;
+      canvas.height = mainImage.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the main image on an offscreen canvas to sample its pixel data.
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width  = mainImage.width;
+      offCanvas.height = mainImage.height;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(mainImage, 0, 0, mainImage.width, mainImage.height);
+      const imageData = offCtx.getImageData(0, 0, mainImage.width, mainImage.height).data;
+
+      // Loop over the image in grid cells of size "dotSize".
+      for (let y = 0; y < mainImage.height; y += dotSize) {
+        for (let x = 0; x < mainImage.width; x += dotSize) {
+          // Sample a pixel from the center of the cell.
+          let sampleX = Math.floor(x + dotSize / 2);
+          let sampleY = Math.floor(y + dotSize / 2);
+          sampleX = Math.min(sampleX, mainImage.width - 1);
+          sampleY = Math.min(sampleY, mainImage.height - 1);
+
+          const index = (sampleY * mainImage.width + sampleX) * 4;
+          const r = imageData[index];
+          const g = imageData[index + 1];
+          const b = imageData[index + 2];
+
+          // Calculate brightness (0 = dark, 255 = light)
+          const brightness = (r + g + b) / 3;
+          // Use brightness to determine a scaling factor:
+          // Darker areas yield larger troll-face dots.
+          const scaleFactor = (1 - brightness / 255);
+          // Compute the diameter for the troll-face; adjust multiplier as desired.
+          const dotDiameter = scaleFactor * dotSize * 2;
+          if (dotDiameter <= 0) continue; // Skip if the dot would be invisible
+
+          // Determine tint color if random color is enabled.
+          let tintColor = null;
+          if (randomDotColor.checked) {
+            const randomR = Math.floor(Math.random() * 256);
+            const randomG = Math.floor(Math.random() * 256);
+            const randomB = Math.floor(Math.random() * 256);
+            tintColor = `rgb(${randomR}, ${randomG}, ${randomB})`;
+          }
+
+          // Calculate the drawing position so the dot is centered.
+          const centerX = x + dotSize / 2;
+          const centerY = y + dotSize / 2;
+          const posX    = centerX - dotDiameter / 2;
+          const posY    = centerY - dotDiameter / 2;
+
+          // Draw the troll-face image scaled to the computed dot size.
+          if (tintColor) {
+            // If random coloring is enabled, tint the troll-face.
+            ctx.save();
+            ctx.drawImage(trollFace, posX, posY, dotDiameter, dotDiameter);
+            ctx.globalCompositeOperation = "source-atop";
+            ctx.fillStyle = tintColor;
+            ctx.fillRect(posX, posY, dotDiameter, dotDiameter);
+            ctx.restore();
+          } else {
+            ctx.drawImage(trollFace, posX, posY, dotDiameter, dotDiameter);
+          }
+        }
+      }
+    }
+  </script>
+</body>
+</html>

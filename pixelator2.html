@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>8-Bit Image Converter & Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #eee;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
+    h2 {
+      margin-bottom: 5px;
+    }
+    #controls, #generateControls {
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #fff;
+      display: inline-block;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+    }
+    #controls input[type="range"],
+    #generateControls input[type="range"] {
+      vertical-align: middle;
+      margin: 0 5px;
+    }
+    #controls span, #generateControls span {
+      font-weight: bold;
+    }
+    #canvasContainer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 20px;
+    }
+    .canvasWrapper {
+      text-align: center;
+    }
+    .canvasWrapper canvas {
+      border: 1px solid #ccc;
+      background: #fff;
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>8-Bit Image Converter & Generator</h1>
+
+  <!-- Section for image upload and conversion -->
+  <div id="controls">
+    <h2>Upload & Convert</h2>
+    <input type="file" id="imageUpload" accept="image/*">
+    <br><br>
+    <label for="pixelSizeSlider">Pixelation Size:</label>
+    <input type="range" id="pixelSizeSlider" min="2" max="50" value="8">
+    <span id="pixelSizeValue">8</span>
+    <br><br>
+    <label for="colorLevelsSlider">Color Levels:</label>
+    <input type="range" id="colorLevelsSlider" min="2" max="16" value="4">
+    <span id="colorLevelsValue">4</span>
+    <br><br>
+    <button id="convertBtn">Convert to 8-Bit Style</button>
+  </div>
+
+  <!-- Section for text-prompt generation -->
+  <div id="generateControls">
+    <h2>Generate from Text Prompt</h2>
+    <input type="text" id="textPrompt" placeholder="Enter your text prompt here">
+    <button id="generateBtn">Generate Unique 8-Bit Image</button>
+    <br><br>
+    <!-- Inform the user of the fixed settings -->
+    <em>Settings: Pixelation Size = 5, Color Levels = 14</em>
+  </div>
+
+  <!-- Canvases displayed side by side -->
+  <div id="canvasContainer">
+    <div class="canvasWrapper">
+      <canvas id="originalCanvas"></canvas>
+      <p>Original Image</p>
+    </div>
+    <div class="canvasWrapper">
+      <canvas id="convertedCanvas"></canvas>
+      <p>8-Bit Conversion</p>
+    </div>
+  </div>
+
+  <script>
+    /**********************
+     * Global DOM Elements
+     **********************/
+    const imageUpload = document.getElementById("imageUpload");
+    const pixelSizeSlider = document.getElementById("pixelSizeSlider");
+    const pixelSizeValue = document.getElementById("pixelSizeValue");
+    const colorLevelsSlider = document.getElementById("colorLevelsSlider");
+    const colorLevelsValue = document.getElementById("colorLevelsValue");
+    const convertBtn = document.getElementById("convertBtn");
+    const textPrompt = document.getElementById("textPrompt");
+    const generateBtn = document.getElementById("generateBtn");
+    const originalCanvas = document.getElementById("originalCanvas");
+    const convertedCanvas = document.getElementById("convertedCanvas");
+    const origCtx = originalCanvas.getContext("2d");
+    const convCtx = convertedCanvas.getContext("2d");
+
+    /**********************
+     * Global Variables
+     **********************/
+    let uploadedImage = new Image(); // holds either uploaded or generated image
+
+    /**********************
+     * Utility Functions
+     **********************/
+    // Clamp a value between 0 and 255.
+    function clamp(value) {
+      return Math.max(0, Math.min(255, value));
+    }
+
+    // Adjust imageData contrast by factor (1.0 = no change).
+    function adjustContrast(imageData, factor) {
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        data[i]     = clamp(factor * (data[i] - 128) + 128);
+        data[i + 1] = clamp(factor * (data[i + 1] - 128) + 128);
+        data[i + 2] = clamp(factor * (data[i + 2] - 128) + 128);
+      }
+      return imageData;
+    }
+
+    // Adjust imageData saturation by factor (1.0 = no change).
+    function adjustSaturation(imageData, factor) {
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const gray = 0.2989 * r + 0.5870 * g + 0.1140 * b;
+        data[i]   = clamp(gray + (r - gray) * factor);
+        data[i+1] = clamp(gray + (g - gray) * factor);
+        data[i+2] = clamp(gray + (b - gray) * factor);
+      }
+      return imageData;
+    }
+
+    /**********************
+     * 8-Bit Conversion Function
+     **********************/
+    function convertTo8Bit() {
+      const pixelSize = parseInt(pixelSizeSlider.value, 10);
+      const colorLevels = parseInt(colorLevelsSlider.value, 10);
+      const factor = 255 / (colorLevels - 1); // quantization factor
+
+      const width = uploadedImage.width;
+      const height = uploadedImage.height;
+
+      // Draw uploaded image to a temporary offscreen canvas.
+      const offCanvas = document.createElement("canvas");
+      offCanvas.width = width;
+      offCanvas.height = height;
+      const offCtx = offCanvas.getContext("2d");
+      offCtx.drawImage(uploadedImage, 0, 0, width, height);
+
+      // Get image data.
+      const imageData = offCtx.getImageData(0, 0, width, height);
+
+      // Clear the converted canvas.
+      convCtx.clearRect(0, 0, width, height);
+
+      // Loop over image in blocks (pixelation effect).
+      for (let y = 0; y < height; y += pixelSize) {
+        for (let x = 0; x < width; x += pixelSize) {
+          let sumR = 0, sumG = 0, sumB = 0, count = 0;
+          // For each block, average the color.
+          for (let j = 0; j < pixelSize; j++) {
+            for (let i = 0; i < pixelSize; i++) {
+              const posX = x + i;
+              const posY = y + j;
+              if (posX >= width || posY >= height) continue;
+              const index = (posY * width + posX) * 4;
+              sumR += imageData.data[index];
+              sumG += imageData.data[index + 1];
+              sumB += imageData.data[index + 2];
+              count++;
+            }
+          }
+          const avgR = sumR / count;
+          const avgG = sumG / count;
+          const avgB = sumB / count;
+          // Quantize each channel.
+          const newR = Math.round(avgR / factor) * factor;
+          const newG = Math.round(avgG / factor) * factor;
+          const newB = Math.round(avgB / factor) * factor;
+          convCtx.fillStyle = `rgb(${newR}, ${newG}, ${newB})`;
+          convCtx.fillRect(x, y, pixelSize, pixelSize);
+        }
+      }
+    }
+
+    /**********************
+     * Handler for Upload Conversion
+     **********************/
+    imageUpload.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        uploadedImage = new Image();
+        uploadedImage.onload = function() {
+          // Set both canvases to the image dimensions.
+          originalCanvas.width = uploadedImage.width;
+          originalCanvas.height = uploadedImage.height;
+          convertedCanvas.width = uploadedImage.width;
+          convertedCanvas.height = uploadedImage.height;
+          // Draw original image.
+          origCtx.drawImage(uploadedImage, 0, 0);
+        };
+        uploadedImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    convertBtn.addEventListener("click", () => {
+      if (!uploadedImage.src) {
+        alert("Please upload an image first.");
+        return;
+      }
+      convertTo8Bit();
+    });
+
+    /**********************
+     * Text-Prompt–Based Image Generation
+     **********************/
+    // A function to generate a unique image (as a data URL) based on a text prompt.
+    function generateImageFromPrompt(prompt) {
+      // Use a fixed canvas size (e.g., 400x400)
+      const width = 400, height = 400;
+      const genCanvas = document.createElement("canvas");
+      genCanvas.width = width;
+      genCanvas.height = height;
+      const genCtx = genCanvas.getContext("2d");
+
+      // Create a simple seed from the prompt (summing char codes)
+      let seed = 0;
+      for (let i = 0; i < prompt.length; i++) {
+        seed += prompt.charCodeAt(i);
+      }
+      // Simple LCG for seeded random numbers.
+      function seededRandom() {
+        // Constants for LCG.
+        seed = (seed * 9301 + 49297) % 233280;
+        return seed / 233280;
+      }
+
+      // Fill background with a hue based on the prompt.
+      const bgHue = Math.floor(seededRandom() * 360);
+      genCtx.fillStyle = `hsl(${bgHue}, 50%, 80%)`;
+      genCtx.fillRect(0, 0, width, height);
+
+      // Draw several circles based on seeded randomness.
+      const numCircles = 20;
+      for (let i = 0; i < numCircles; i++) {
+        const x = seededRandom() * width;
+        const y = seededRandom() * height;
+        const radius = seededRandom() * 50 + 10;
+        const hue = Math.floor(seededRandom() * 360);
+        const sat = Math.floor(seededRandom() * 50) + 50;
+        const light = Math.floor(seededRandom() * 40) + 30;
+        genCtx.fillStyle = `hsl(${hue}, ${sat}%, ${light}%)`;
+        genCtx.beginPath();
+        genCtx.arc(x, y, radius, 0, Math.PI * 2);
+        genCtx.fill();
+      }
+
+      // Draw a few random lines.
+      const numLines = 10;
+      for (let i = 0; i < numLines; i++) {
+        const x1 = seededRandom() * width;
+        const y1 = seededRandom() * height;
+        const x2 = seededRandom() * width;
+        const y2 = seededRandom() * height;
+        const hue = Math.floor(seededRandom() * 360);
+        genCtx.strokeStyle = `hsl(${hue}, 70%, 50%)`;
+        genCtx.lineWidth = seededRandom() * 5 + 1;
+        genCtx.beginPath();
+        genCtx.moveTo(x1, y1);
+        genCtx.lineTo(x2, y2);
+        genCtx.stroke();
+      }
+
+      // Return the generated image as a data URL.
+      return genCanvas.toDataURL("image/png");
+    }
+
+    // Handler for the "Generate from Prompt" button.
+    generateBtn.addEventListener("click", () => {
+      const promptText = textPrompt.value.trim();
+      if (!promptText) {
+        alert("Please enter a text prompt.");
+        return;
+      }
+      // Automatically set pixelation size to 5 and color levels to 14.
+      pixelSizeSlider.value = 5;
+      pixelSizeValue.textContent = "5";
+      colorLevelsSlider.value = 14;
+      colorLevelsValue.textContent = "14";
+
+      // Generate a unique image from the prompt.
+      const dataURL = generateImageFromPrompt(promptText);
+      // Set the uploadedImage to the generated image.
+      uploadedImage = new Image();
+      uploadedImage.onload = function() {
+        // Set canvas dimensions.
+        originalCanvas.width = uploadedImage.width;
+        originalCanvas.height = uploadedImage.height;
+        convertedCanvas.width = uploadedImage.width;
+        convertedCanvas.height = uploadedImage.height;
+        // Draw original image.
+        origCtx.drawImage(uploadedImage, 0, 0);
+        // Run conversion.
+        convertTo8Bit();
+      };
+      uploadedImage.src = dataURL;
+    });
+  </script>
+</body>
+</html>
