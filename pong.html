@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Advanced Pong Game</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      overflow: hidden;
+      color: #fff;
+      font-family: sans-serif;
+    }
+    canvas {
+      display: block;
+      background: #222;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 5px 10px;
+      border-radius: 5px;
+    }
+    #controls label,
+    #controls button {
+      margin-right: 10px;
+      font-size: 14px;
+    }
+    #controls input {
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <!-- Controls: image uploads, ball speed, paddle size, pause/resume, score reset, and image reset -->
+  <div id="controls">
+    <label>
+      Ball Image:
+      <input type="file" id="ballImageInput" accept="image/*" />
+    </label>
+    <label>
+      Background:
+      <input type="file" id="bgImageInput" accept="image/*" />
+    </label>
+    <label>
+      Paddle Image:
+      <input type="file" id="paddleImageInput" accept="image/*" />
+    </label>
+    <label>
+      Ball Speed:
+      <input type="range" id="ballSpeedInput" min="1" max="10" step="0.5" value="5" />
+      <span id="ballSpeedValue">5</span>
+    </label>
+    <button id="pauseButton">Pause</button>
+    <button id="resetButton">Reset Score</button>
+    <button id="resetImagesButton">Reset Images</button>
+    <label>
+      Paddle Size:
+      <input type="range" id="paddleSizeInput" min="50" max="200" value="100" />
+      <span id="paddleSizeValue">100</span>
+    </label>
+  </div>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    // Get canvas and context
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Set canvas size to fill the window
+    let cw = canvas.width = window.innerWidth;
+    let ch = canvas.height = window.innerHeight;
+
+    // Scoreboard variables
+    let leftScore = 0;
+    let rightScore = 0;
+
+    // Game state variable for pausing
+    let paused = false;
+
+    // Particle array for burst effects
+    const particles = [];
+
+    // Game objects and configuration
+    const paddleWidth = 10;
+    let paddleHeight = 100; // Adjustable via slider
+
+    const leftPaddle = {
+      x: 20,
+      y: ch / 2 - paddleHeight / 2,
+      width: paddleWidth,
+      height: paddleHeight,
+      prevY: ch / 2 - paddleHeight / 2  // To track vertical movement
+    };
+
+    const rightPaddle = {
+      x: cw - 20 - paddleWidth,
+      y: ch / 2 - paddleHeight / 2,
+      width: paddleWidth,
+      height: paddleHeight,
+      prevY: ch / 2 - paddleHeight / 2
+    };
+
+    // Default ball (shark) settings
+    const ball = {
+      x: cw / 2,
+      y: ch / 2,
+      radius: 20,
+      speed: 5,  // Initial speed matches the slider value
+      dx: 5,
+      dy: 3,
+      image: new Image(),
+      rotation: 0,     // Ball's current rotation (radians)
+      spin: 0,         // Current spin value
+      collisionCooldown: 0 // Cooldown to prevent multiple collisions in one hit
+    };
+
+    // Set the default ball image to a shark (external URL)
+    const defaultBallSrc = "https://cdn-icons-png.flaticon.com/512/616/616408.png";
+    ball.image.src = defaultBallSrc;
+
+    // Optionally store custom images for background and paddles
+    const bgImage = new Image();
+    let useBgImage = false;
+
+    const paddleImage = new Image();
+    let usePaddleImage = false;
+
+    // Ball trail: store past positions for a fading “trendline”
+    const ballTrail = [];
+    const maxTrailLength = 20;
+
+    // Keyboard controls state
+    const keys = {};
+    window.addEventListener("keydown", e => { keys[e.key] = true; });
+    window.addEventListener("keyup", e => { keys[e.key] = false; });
+
+    // --- File Input Listeners for Custom Images ---
+    // Ball image update
+    document.getElementById("ballImageInput").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = evt => { ball.image.src = evt.target.result; };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Background image update
+    document.getElementById("bgImageInput").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = evt => {
+          bgImage.src = evt.target.result;
+          useBgImage = true;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Paddle image update
+    document.getElementById("paddleImageInput").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = evt => {
+          paddleImage.src = evt.target.result;
+          usePaddleImage = true;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // --- Ball Speed Slider ---
+    document.getElementById("ballSpeedInput").addEventListener("input", function(e) {
+      const newSpeed = parseFloat(e.target.value);
+      document.getElementById("ballSpeedValue").textContent = newSpeed;
+      // Scale the current velocity to match the new speed while preserving direction
+      const currentSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+      if (currentSpeed !== 0) {
+        ball.dx = (ball.dx / currentSpeed) * newSpeed;
+        ball.dy = (ball.dy / currentSpeed) * newSpeed;
+      }
+      ball.speed = newSpeed;
+    });
+
+    // --- Paddle Size Slider ---
+    document.getElementById("paddleSizeInput").addEventListener("input", function(e) {
+      const newSize = parseInt(e.target.value);
+      document.getElementById("paddleSizeValue").textContent = newSize;
+      paddleHeight = newSize;
+      leftPaddle.height = newSize;
+      rightPaddle.height = newSize;
+    });
+
+    // --- Pause/Resume Button ---
+    document.getElementById("pauseButton").addEventListener("click", function() {
+      paused = !paused;
+      this.textContent = paused ? "Resume" : "Pause";
+    });
+
+    // --- Reset Score Button ---
+    document.getElementById("resetButton").addEventListener("click", function() {
+      leftScore = 0;
+      rightScore = 0;
+    });
+
+    // --- Reset Images Button ---
+    document.getElementById("resetImagesButton").addEventListener("click", function() {
+      ball.image.src = defaultBallSrc;
+      useBgImage = false;
+      usePaddleImage = false;
+      document.getElementById("ballImageInput").value = "";
+      document.getElementById("bgImageInput").value = "";
+      document.getElementById("paddleImageInput").value = "";
+    });
+
+    // --- Particle Burst Function ---
+    function createParticles(x, y) {
+      for (let i = 0; i < 20; i++) {
+        const angle = Math.random() * 2 * Math.PI;
+        const speed = Math.random() * 3 + 1;
+        particles.push({
+          x: x,
+          y: y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 30,
+          maxLife: 30,
+          color: "rgba(255, 255, 0, 1)" // Yellowish burst
+        });
+      }
+    }
+
+    // --- Update Function ---
+    function update() {
+      if (!paused) {
+        // Keyboard paddle controls (in addition to mouse)
+        if (keys["w"] && leftPaddle.y > 0) leftPaddle.y -= 6;
+        if (keys["s"] && leftPaddle.y + leftPaddle.height < ch) leftPaddle.y += 6;
+        if (keys["ArrowUp"] && rightPaddle.y > 0) rightPaddle.y -= 6;
+        if (keys["ArrowDown"] && rightPaddle.y + rightPaddle.height < ch) rightPaddle.y += 6;
+
+        // Update ball position
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+
+        // --- Bounce off Top/Bottom Walls ---
+        if (ball.y - ball.radius < 0) {
+          ball.y = ball.radius;
+          ball.dy = -ball.dy;
+        } else if (ball.y + ball.radius > ch) {
+          ball.y = ch - ball.radius;
+          ball.dy = -ball.dy;
+        }
+
+        // Add current ball position to the trail
+        ballTrail.push({ x: ball.x, y: ball.y });
+        if (ballTrail.length > maxTrailLength) ballTrail.shift();
+
+        // Update particle positions and remove dead particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.life--;
+          if (p.life <= 0) particles.splice(i, 1);
+        }
+
+        // Decrement collision cooldown (to avoid repeated collisions)
+        if (ball.collisionCooldown > 0) ball.collisionCooldown--;
+
+        // --- Paddle Collision Checks with Particle Burst & Spin ---
+        // Left paddle collision
+        if (
+          ball.x - ball.radius < leftPaddle.x + leftPaddle.width &&
+          ball.x - ball.radius > leftPaddle.x &&
+          ball.y > leftPaddle.y &&
+          ball.y < leftPaddle.y + leftPaddle.height
+        ) {
+          if (ball.collisionCooldown <= 0) {
+            createParticles(ball.x, ball.y);
+            const paddleVel = leftPaddle.y - leftPaddle.prevY;
+            ball.spin = paddleVel * 0.05;
+            ball.dy += paddleVel * 0.5;
+            ball.dx = Math.abs(ball.dx); // Bounce to the right
+            ball.collisionCooldown = 10;
+          }
+        }
+
+        // Right paddle collision
+        if (
+          ball.x + ball.radius > rightPaddle.x &&
+          ball.x + ball.radius < rightPaddle.x + rightPaddle.width &&
+          ball.y > rightPaddle.y &&
+          ball.y < rightPaddle.y + rightPaddle.height
+        ) {
+          if (ball.collisionCooldown <= 0) {
+            createParticles(ball.x, ball.y);
+            const paddleVel = rightPaddle.y - rightPaddle.prevY;
+            ball.spin = paddleVel * 0.05;
+            ball.dy += paddleVel * 0.5;
+            ball.dx = -Math.abs(ball.dx); // Bounce to the left
+            ball.collisionCooldown = 10;
+          }
+        }
+
+        // Score and reset ball if it goes off the left or right side
+        if (ball.x + ball.radius < 0) {
+          rightScore++;
+          resetBall();
+        } else if (ball.x - ball.radius > cw) {
+          leftScore++;
+          resetBall();
+        }
+
+        // Update ball rotation based on spin and apply slight damping to spin
+        ball.rotation += ball.spin * 0.05;
+        ball.spin *= 0.99;
+
+        // Store current paddle positions for next-frame velocity calculations
+        leftPaddle.prevY = leftPaddle.y;
+        rightPaddle.prevY = rightPaddle.y;
+      }
+    }
+
+    // --- Reset Ball Function ---
+    function resetBall() {
+      ball.x = cw / 2;
+      ball.y = ch / 2;
+      ballTrail.length = 0;
+      ball.rotation = 0;
+      ball.spin = 0;
+      ball.collisionCooldown = 0;
+      // Randomize starting direction using current speed
+      ball.dx = (Math.random() > 0.5 ? 1 : -1) * ball.speed;
+      ball.dy = (Math.random() * 2 - 1) * ball.speed;
+    }
+
+    // --- Draw Function ---
+    function draw() {
+      // Draw background (either image or solid color)
+      if (useBgImage && bgImage.complete) {
+        ctx.drawImage(bgImage, 0, 0, cw, ch);
+      } else {
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, cw, ch);
+      }
+
+      // Draw ball trail (fading trendline)
+      for (let i = 0; i < ballTrail.length - 1; i++) {
+        const alpha = (i + 1) / ballTrail.length;
+        ctx.beginPath();
+        ctx.moveTo(ballTrail[i].x, ballTrail[i].y);
+        ctx.lineTo(ballTrail[i + 1].x, ballTrail[i + 1].y);
+        ctx.strokeStyle = "rgba(0,255,0," + alpha + ")";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Draw particles
+      for (const p of particles) {
+        const a = p.life / p.maxLife;
+        ctx.fillStyle = `rgba(255,255,0,${a})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw the ball with rotation:
+      ctx.save();
+      ctx.translate(ball.x, ball.y);
+      ctx.rotate(ball.rotation);
+      if (ball.image.complete) {
+        ctx.drawImage(ball.image, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
+      } else {
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Draw left paddle (using custom image if provided)
+      if (usePaddleImage && paddleImage.complete) {
+        ctx.drawImage(paddleImage, leftPaddle.x, leftPaddle.y, leftPaddle.width, leftPaddle.height);
+      } else {
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(leftPaddle.x, leftPaddle.y, leftPaddle.width, leftPaddle.height);
+      }
+
+      // Draw right paddle
+      if (usePaddleImage && paddleImage.complete) {
+        ctx.drawImage(paddleImage, rightPaddle.x, rightPaddle.y, rightPaddle.width, rightPaddle.height);
+      } else {
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(rightPaddle.x, rightPaddle.y, rightPaddle.width, rightPaddle.height);
+      }
+
+      // Draw the scoreboard at the top center
+      ctx.font = "36px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText(`${leftScore} - ${rightScore}`, cw / 2, 50);
+
+      // If paused, overlay a translucent "Paused" message
+      if (paused) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.fillStyle = "#fff";
+        ctx.font = "48px Arial";
+        ctx.fillText("Paused", cw / 2, ch / 2);
+      }
+    }
+
+    // --- Mouse Paddle Control ---
+    canvas.addEventListener("mousemove", function(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      if (mouseX < cw / 2) {
+        leftPaddle.y = mouseY - leftPaddle.height / 2;
+        if (leftPaddle.y < 0) leftPaddle.y = 0;
+        if (leftPaddle.y + leftPaddle.height > ch) leftPaddle.y = ch - leftPaddle.height;
+      } else {
+        rightPaddle.y = mouseY - rightPaddle.height / 2;
+        if (rightPaddle.y < 0) rightPaddle.y = 0;
+        if (rightPaddle.y + rightPaddle.height > ch) rightPaddle.y = ch - rightPaddle.height;
+      }
+    });
+
+    // --- Main Game Loop ---
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Adjust canvas size on window resize
+    window.addEventListener("resize", () => {
+      cw = canvas.width = window.innerWidth;
+      ch = canvas.height = window.innerHeight;
+      // Re-center paddles
+      leftPaddle.y = ch / 2 - leftPaddle.height / 2;
+      rightPaddle.y = ch / 2 - rightPaddle.height / 2;
+    });
+
+    // Start the game loop
+    gameLoop();
+  </script>
+</body>
+</html>
